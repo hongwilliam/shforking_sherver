@@ -10,14 +10,20 @@
   =========================*/
 int server_setup() {
   remove(WKP);
+  printf("[serber] uhhh WKP made..\n");
   if (mkfifo(WKP, 0660) == -1) {
     print_errno();
+    exit(1);
   }
-
+  //if fd != -1, will lock program till afterwards
   int fd = open(WKP, O_RDONLY, 0);
   if (fd == -1){
     print_errno();
+    exit(1);
   }
+  printf("[serber] well known pipe is shopen\n");
+  //remove the WKP so that it can be used for the next client.
+  remove(WKP);
   return fd;
 }
 
@@ -29,13 +35,40 @@ int server_setup() {
   returns the file descriptor for the downstream pipe.
   =========================*/
 int server_connect(int from_client) {
-  char buffer[100];
-  read(from_client, buffer, 100);
-  int down_pipe = open(buffer, O_WRONLY, 0);
-  write(down_pipe, buffer, 100);
-  if (read(from_client, buffer, 100)){
-    printf("subserver %d: has made a handshake", getpid() ); }
-  return down_pipe;
+    char up_buffer[HANDSHAKE_BUFFER_SIZE];
+    //first, read from the WKP (from_client):
+    if (read(from_client, up_buffer, sizeof(up_buffer)) == -1) {
+        print_errno();
+    }
+    //up_buffer contains the client pid
+    printf("[serber-child] Received connection from PID %s\n", up_buffer);
+    //open down pipe:
+    int to_client = open(up_buffer, O_WRONLY);
+    if (to_client == -1) {
+        print_errno();
+    }
+    //make sure to remove the child pipe if it didnt do it already:
+    remove(up_buffer);
+    //ASSUME from_client and to_client work traditionally:
+    //acknowledge the client, wait for it to acknowledge u back:
+    if (write(to_client, ACK, HANDSHAKE_BUFFER_SIZE) == -1) {
+        print_errno();
+    }
+    char down_buffer[HANDSHAKE_BUFFER_SIZE];
+    if (read(from_client, down_buffer, sizeof(down_buffer)) == -1) {
+        print_errno();
+    }
+    //validate that u got the right resposne back
+    if (!strncmp(down_buffer, ACK, sizeof(down_buffer))) {
+        printf("[serber-child] Received proper acknowledgement: %s\n", down_buffer);
+    }
+    else {
+        fprintf(stderr, "ERROR: Received malformed acknowledgement \"%s\"\n", down_buffer);
+        close(from_client);
+        close(to_client);
+    }
+
+    return to_client;
 }
 
 /*=========================
@@ -45,7 +78,7 @@ int server_connect(int from_client) {
   Sets *to_client to the file descriptor to the downstream pipe.
   returns the file descriptor for the upstream pipe.
   =========================*/
-int server_handshake(int *to_client, int *) {
+int server_handshake(int *to_client) {
 
   int from_client;
 
@@ -63,7 +96,7 @@ int server_handshake(int *to_client, int *) {
   printf("[server] handshake: removed wkp\n");
 
   //connect to client, send message
-  printf("Forking subprocess to manage client\n")
+  printf("Forking subprocess to manage client\n");
   *to_client = open(buffer, O_WRONLY, 0);
   write(*to_client, buffer, sizeof(buffer));
 
@@ -83,35 +116,38 @@ int server_handshake(int *to_client, int *) {
   =========================*/
 int client_handshake(int *to_server) {
 
-  int from_server;
-  char buffer[HANDSHAKE_BUFFER_SIZE];
+    int from_server;
+    char buffer[HANDSHAKE_BUFFER_SIZE];
 
-  //send pp name to server
-  printf("[client] handshake: connecting to wkp\n");
-  *to_server = open( WKP, O_WRONLY, 0);
-  if ( *to_server == -1 )
-    exit(1);
+    //send pp name to server
+    printf("[client] handshake: connecting to wkp\n");
+    *to_server = open( WKP, O_WRONLY, 0);
+    if ( *to_server == -1 ) {
+        print_errno();
+        exit(1);
+    }
 
-  //make private pipe
-  sprintf(buffer, "%d", getpid() );
-  mkfifo(buffer, 0600);
 
-  write(*to_server, buffer, sizeof(buffer));
+    //make private pipe
+    sprintf(buffer, "%d", getpid() );
+    mkfifo(buffer, 0600);
 
-  //open and wait for connection
-  from_server = open(buffer, O_RDONLY, 0);
-  read(from_server, buffer, sizeof(buffer));
-  /*validate buffer code goes here */
-  printf("[client] handshake: received [%s]\n", buffer);
+    write(*to_server, buffer, sizeof(buffer));
 
-  //remove pp
-  remove(buffer);
-  printf("[client] handshake: removed pp\n");
+    //open and wait for connection
+    from_server = open(buffer, O_RDONLY, 0);
+    read(from_server, buffer, sizeof(buffer));
+    /*validate buffer code goes here */
+    printf("[client] handshake: received [%s]\n", buffer);
 
-  //send ACK to server
-  write(*to_server, ACK, sizeof(buffer));
+    //remove pp
+    remove(buffer);
+    printf("[client] handshake: removed private pipe\n");
 
-  return from_server;
+    //send ACK to server
+    write(*to_server, ACK, sizeof(buffer));
+
+    return from_server;
 }
 
 int print_errno() {
