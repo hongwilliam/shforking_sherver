@@ -13,7 +13,7 @@
 #define ACK "HOLA"
 #define HANDSHAKE_BUFFER_SIZE 100
 #define BUFFER_SIZE 1000
-#define WKP "W Kristaps Porzingis"
+#define WKP "WKP"
 
 int server_handshake(int *to_client);
 int client_handshake(int *to_server);

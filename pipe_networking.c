@@ -11,9 +11,14 @@
 int server_setup() {
   remove(WKP);
   if (mkfifo(WKP, 0660) == -1) {
-
+    print_errno();
   }
-  return -1;
+
+  int fd = open(WKP, O_RDONLY, 0);
+  if (fd == -1){
+    print_errno();
+  }
+  return fd;
 }
 
 
@@ -24,12 +29,13 @@ int server_setup() {
   returns the file descriptor for the downstream pipe.
   =========================*/
 int server_connect(int from_client) {
-
-
-
-
-
-  return -1;
+  char buffer[100];
+  read(from_client, buffer, 100);
+  int down_pipe = open(buffer, O_WRONLY, 0);
+  write(down_pipe, buffer, 100);
+  if (read(from_client, buffer, 100)){
+    printf("subserver %d: has made a handshake", getpid() ); }
+  return down_pipe;
 }
 
 /*=========================
